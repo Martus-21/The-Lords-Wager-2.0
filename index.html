@@ -30,7 +30,6 @@
 *{box-sizing:border-box;}
 html,body{height:100%;}
 
-  
 body{
   margin:0;
   background:
@@ -11754,6 +11753,105 @@ body:has(#wheel-wrap.on) #abilities-bar{
   pointer-events: none !important;
 }
 
+/* Mobile — tooltip-ът да е по-широк и четим */
+@media (max-width: 768px){
+  .ability-tooltip{
+    max-width: min(300px, 90vw) !important;
+    font-size: .85rem !important;
+    padding: 12px 14px !important;
+  }
+  .ability-tooltip .abt-name{
+    font-size: .95rem !important;
+  }
+  .ability-tooltip .abt-effect{
+    font-size: .82rem !important;
+  }
+}
+
+/* =========================================================
+   CARD PREVIEW — responsive
+========================================================= */
+#preview{
+  position:fixed;
+  inset:0;
+  z-index:90;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(3,5,8,.92);
+  padding:16px;
+  cursor:zoom-out;
+  animation:preview-in .25s cubic-bezier(.2,.9,.3,1) both;
+}
+
+@keyframes preview-in{
+  from{ opacity:0; }
+  to  { opacity:1; }
+}
+
+.preview-inner{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  animation:preview-card-in .35s cubic-bezier(.2,1.4,.4,1) both;
+  pointer-events:auto;
+}
+
+@keyframes preview-card-in{
+  from{ opacity:0; transform:scale(.85); }
+  to  { opacity:1; transform:scale(1); }
+}
+
+/* X бутон за затваряне — показва се само на mobile */
+.preview-close{
+  position:absolute;
+  top:calc(16px + env(safe-area-inset-top, 0px));
+  right:16px;
+  width:44px;
+  height:44px;
+  border-radius:50%;
+  background:linear-gradient(180deg, #2a3340, #12171e);
+  border:2px solid var(--gold);
+  color:var(--gold-hi);
+  font-size:1.2rem;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:
+    0 6px 18px rgba(0,0,0,.7),
+    0 0 20px rgba(212,161,60,.4);
+  z-index:2;
+  transition:transform .15s ease, background .2s ease;
+}
+.preview-close:active{
+  transform:scale(.92);
+}
+
+/* ── Desktop: картата е с фиксиран размер (260px) ── */
+#preview{ --cw:260; }
+
+/* ── Mobile: картата се побира в екрана ── */
+
+
+
+
+
+/* ── Hover preview (desktop) — скрит на mobile ── */
+@media (hover:none){
+  #hoverprev{
+    display:none !important;
+  }
+}
+
+.slot, .slot *{
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.slot img{ -webkit-user-drag:none; pointer-events:none; }
+
 </style>
 </head>
 <body>
@@ -14666,6 +14764,12 @@ function setPrompt(){
   $('prompt').textContent = G.sel.length ? t('picked')(G.sel.length) : t('pick3');
 }
 
+// Детекция на touch устройство
+function isTouchDevice(){
+  return window.matchMedia('(hover: none)').matches 
+      || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+}
+
 /* =========================================================
    ABILITIES UI — рендериране
 ========================================================= */
@@ -14726,8 +14830,50 @@ if(isIrrevUsed){
     });
 
     // Tooltip
-    slot.addEventListener('mouseenter', (e)=> showAbilityTooltip(ab, e.currentTarget));
-    slot.addEventListener('mouseleave', hideAbilityTooltip);
+        // Tooltip — desktop (hover)
+    slot.addEventListener('mouseenter', (e)=> {
+      if(!isTouchDevice()) showAbilityTooltip(ab, e.currentTarget);
+    });
+    slot.addEventListener('mouseleave', ()=>{
+      if(!isTouchDevice()) hideAbilityTooltip();
+    });
+
+    // Tooltip — mobile (touch)
+    if(isTouchDevice()){
+      let touchTooltipTimer = null;
+      let longPressTriggered = false;
+
+      slot.addEventListener('touchstart', (e)=>{
+        longPressTriggered = false;
+        touchTooltipTimer = setTimeout(()=>{
+          longPressTriggered = true;
+          showAbilityTooltip(ab, slot);
+          // Вибрирай за feedback (ако е поддържано)
+          if(navigator.vibrate) navigator.vibrate(15);
+        }, 400);  // 400ms long press
+      }, { passive: true });
+
+      slot.addEventListener('touchend', (e)=>{
+        clearTimeout(touchTooltipTimer);
+        // Ако НЕ е бил long press → третирай като нормален tap (избор на ability)
+        // Ако Е бил long press → само скрий tooltip-а, не избирай ability
+        if(longPressTriggered){
+          e.preventDefault();
+          e.stopPropagation();
+          setTimeout(hideAbilityTooltip, 1500);  // auto-hide след 1.5s
+        }
+      });
+
+      slot.addEventListener('touchcancel', ()=>{
+        clearTimeout(touchTooltipTimer);
+        hideAbilityTooltip();
+      });
+
+      // Скрий tooltip-а при tap извън него
+      slot.addEventListener('touchmove', ()=>{
+        clearTimeout(touchTooltipTimer);
+      }, { passive: true });
+    }
 
     // Разпредели в редове (макс 4 на ред)
     if(idx < 4) row1.appendChild(slot);
@@ -14782,18 +14928,33 @@ function showAbilityTooltip(ab, anchor){
   // Force reflow → вече имаме реални размери
   void tip.offsetWidth;
 
+ 
   const r = anchor.getBoundingClientRect();
   const tipW = tip.offsetWidth;
   const tipH = tip.offsetHeight;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
 
-  // Изчисли позицията
+  // Хоризонтално — центрирай, но ограничи в екрана
   let left = r.left + r.width / 2 - tipW / 2;
-  left = Math.max(8, Math.min(window.innerWidth - tipW - 8, left));
+  left = Math.max(8, Math.min(vw - tipW - 8, left));
 
-  // Опитай над квадратчето; ако не стига място → под него
+  // Вертикално — на mobile предпочитай НАД, но ако няма място → ПОД
   let top = r.top - tipH - 14;
+  
+  // Ако не стига място отгоре ИЛИ сме на mobile с висок tooltip
   if(top < 8){
     top = r.bottom + 14;
+  }
+  
+  // Ако и отдолу не стига → сложи го възможно най-горе
+  if(top + tipH > vh - 8){
+    // На mobile предпочитай да е над елемента дори да излезе малко
+    if(isTouchDevice()){
+      top = Math.max(8, vh - tipH - 8);
+    } else {
+      top = Math.max(8, r.top - tipH - 14);
+    }
   }
 
   tip.style.left = left + 'px';
@@ -15686,10 +15847,50 @@ function renderHand(){
     z.setAttribute('aria-label','zoom');
     z.addEventListener('click', ev=>{ ev.stopPropagation(); openPreview(c); });
     s.appendChild(z);
-    s.addEventListener('click', ()=> toggleSel(i));
-    s.addEventListener('mouseenter', ev=> hoverPreview(c, ev.currentTarget));
-    s.addEventListener('mouseleave', hideHover);
-    row.appendChild(s);
+    // Mobile: long press → preview; кратък tap → избор
+if(isTouchDevice()){
+  let lpTimer = null;
+  let lpTriggered = false;
+
+  s.addEventListener('touchstart', ()=>{
+    lpTriggered = false;
+    lpTimer = setTimeout(()=>{
+      lpTriggered = true;
+      openPreview(c);
+      if(navigator.vibrate) navigator.vibrate(15);
+    }, 400);
+  }, { passive: true });
+
+  s.addEventListener('touchend', (e)=>{
+    clearTimeout(lpTimer);
+    if(lpTriggered){
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    // Ако НЕ е long press → toggleSel ще се задейства чрез click handler-а по-долу
+  });
+
+  s.addEventListener('touchmove', ()=>{
+    clearTimeout(lpTimer);
+  }, { passive: true });
+
+  s.addEventListener('touchcancel', ()=>{
+    clearTimeout(lpTimer);
+  });
+}
+
+s.addEventListener('click', (e)=>{
+  // Ако е било long press → не избирай картата
+  if(e.detail === 0) return;  // touch-generated click
+  toggleSel(i);
+});
+    s.addEventListener('mouseenter', ev => {
+  if(!isTouchDevice()) hoverPreview(c, ev.currentTarget);
+});
+s.addEventListener('mouseleave', () => {
+  if(!isTouchDevice()) hideHover();
+});
+row.appendChild(s);
   });
   $('clash').disabled = !(G.sel.length === 3 && G.phase === 'pick');
   setPrompt();
@@ -18374,14 +18575,27 @@ function fillGallery(){
 
     // Обикновен клик → preview
 // Обикновен клик → preview
-s.addEventListener('click', (e) => {
-  if(s.classList.contains('dragging')) return;
-  openPreview(c);
+// 🔍 Desktop: hover preview
+s.addEventListener('mouseenter', ev => {
+  if(!isTouchDevice()) hoverPreview(c, ev.currentTarget);
+});
+s.addEventListener('mouseleave', () => {
+  if(!isTouchDevice()) hideHover();
 });
 
-// 🔍 Hover preview — без media query проверка
-  s.addEventListener('mouseenter', ev => hoverPreview(c, ev.currentTarget));
-  s.addEventListener('mouseleave', hideHover);
+// 📱 Mobile + Desktop: tap/click → отвори голяма карта
+s.addEventListener('click', (e) => {
+  if(s.classList.contains('dragging')) return;
+  // На mobile — директно отвори preview
+  if(isTouchDevice()){
+    e.preventDefault();
+    e.stopPropagation();
+    openPreview(c);
+  } else {
+    // На desktop — кликът отваря preview (както досега)
+    openPreview(c);
+  }
+});
 
   frag.appendChild(s);
 });   // ← 🔑 КРАЙ на list.forEach
@@ -18395,22 +18609,65 @@ if(countEl) countEl.textContent = list.length;
 /* ---------- preview ---------- */
 function openPreview(c){
   hideHover();
-  const w = document.createElement('div'); w.id = 'preview';
-  w.appendChild(slotEl(c,false));
   
-  // Затваряне при клик
-  w.addEventListener('click', ()=> {
+  // Премахни стар preview ако има
+  const existing = document.getElementById('preview');
+  if(existing) existing.remove();
+
+  const w = document.createElement('div');
+  w.id = 'preview';
+
+ const cw = Math.floor(Math.min(
+    window.innerWidth * 0.82,
+    (window.innerHeight - 32) / 1.5556,
+    300
+  ));
+  w.style.setProperty('--cw', cw);
+  
+  // Контейнер с responsive размер
+  const inner = document.createElement('div');
+  inner.className = 'preview-inner';
+  inner.appendChild(slotEl(c, false));
+  w.appendChild(inner);
+
+  // Затваряне при клик върху backdrop-а
+  const openedAt = Date.now();
+  w.addEventListener('click', (e) => {
+    if(Date.now() - openedAt < 350) return;
+    if(e.target.closest('.preview-inner')) return;
     w.remove();
-    hideHover();  // ← скрий hover preview-то и тук
+    hideHover();
   });
-  
+
+  // Затваряне с Escape
+  const onKey = (e) => {
+    if(e.key === 'Escape'){
+      w.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  };
+  document.addEventListener('keydown', onKey);
+
+  // Затваряне с X бутон (само на mobile)
+  if(isTouchDevice()){
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'preview-close';
+    closeBtn.innerHTML = '✕';
+    closeBtn.setAttribute('aria-label', 'Затвори');
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      w.remove();
+    });
+    w.appendChild(closeBtn);
+  }
+
   document.body.appendChild(w);
 }
-function hoverPreview(c, anchor){
-  // Само на устройства с мишка и достатъчно широк екран
-  //if(!window.matchMedia('(hover:hover)').matches) return;
-  if(window.innerWidth < 900) return;
 
+function hoverPreview(c, anchor){
+  // На mobile НЕ показваме hover preview — използваме tap → openPreview
+  if(isTouchDevice()) return;
+  
   const hp = $('hoverprev');
   hp.innerHTML = '';
   hp.appendChild(slotEl(c, false));
@@ -18428,7 +18685,7 @@ function hoverPreview(c, anchor){
 
   // 🎯 Вертикално — ОПИТАЙ ОТГОРЕ, после отдолу, после фиксирай
   let top = r.top - h - 14;
-top = Math.max(-h + 40, top);
+  top = Math.max(-h + 40, top);
 
   // Ако няма място отгоре → сложи ОТДОЛУ
   if(top < 8){
@@ -18444,6 +18701,7 @@ top = Math.max(-h + 40, top);
   hp.style.top  = top + 'px';
   hp.classList.add('on');
 }
+
 function hideHover(){ $('hoverprev').classList.remove('on'); }
 
 /* ---------- sheets ---------- */
@@ -21526,6 +21784,27 @@ function renderQuestCollectionAbilities(){
       });
     });
   }
+
+/* =========================================================
+   GLOBAL TOUCH HANDLER — скрива tooltip-а при tap извън него
+========================================================= */
+document.addEventListener('touchstart', (e) => {
+  const tip = document.getElementById('ability-tooltip');
+  if(!tip || !tip.classList.contains('on')) return;
+  
+  // Ако tap-ът е върху ability slot → не го затваряй (неговият собствен handler ще се справи)
+  if(e.target.closest && e.target.closest('.ability-slot')) return;
+  
+  // Ако tap-ът е върху самия tooltip → не го затваряй
+  if(e.target.closest && e.target.closest('#ability-tooltip')) return;
+  
+  hideAbilityTooltip();
+}, { passive: true });
+
+// Скрий tooltip-а и при scroll
+document.addEventListener('scroll', () => {
+  hideAbilityTooltip();
+}, { passive: true, capture: true });
 
   // Escape
   document.addEventListener('keydown', e => {
