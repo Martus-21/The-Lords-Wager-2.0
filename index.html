@@ -11834,7 +11834,11 @@ body:has(#wheel-wrap.on) #abilities-bar{
 /* ── Mobile: картата се побира в екрана ── */
 
 
-
+@media (max-width: 900px){
+  #needle{
+    left: 90px;   /* 136.4px - 10px = ~126px */
+  }
+}
 
 
 /* ── Hover preview (desktop) — скрит на mobile ── */
@@ -17992,7 +17996,8 @@ function showDeckToast(msg, warn = false){
 
 function openCollection(){
   const L = lang === 'bg';
-  const isQuestMode = (typeof questState !== 'undefined' && questState.activeMission);
+  const questScreen = document.getElementById('quest');
+const isQuestMode = questScreen && !questScreen.classList.contains('hidden');
 
   console.log('🎴 openCollection called | questMode:', isQuestMode);
 
@@ -18718,6 +18723,7 @@ function openSheet(html, after, wide = false){
 function closeSheet(){ if(sheetEl){ sheetEl.remove(); sheetEl = null; } }
 function toMenu(){
   closeSheet();
+  if(typeof questState !== 'undefined') questState.activeMission = null;  // 🔑
   G.phase = 'menu'; G.busy = false;
   transitionScreens($('game'), $('menu'));
   setTimeout(()=> sfx.playBgm('menu'), 100);
@@ -18734,6 +18740,10 @@ if(isQuest){
     document.getElementById(id)?.classList.add('hidden');
   });
 }
+
+ if(toEl && toEl.id === 'menu' && typeof questState !== 'undefined'){
+    questState.activeMission = null;
+  }
 
   // Скрий/покажи log + advisor панели според екрана
   const isMenu = toEl && toEl.id === 'menu';
